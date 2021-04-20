@@ -126,7 +126,7 @@ newtonianForce Body{mass=m1, position=pos1} Body{mass=m2, position=pos2} =
   unit * fromRational ((gConst * m1*m2) / r^2) -- (N m^2 / kg^2) * kg^2 / m^2 = N
   where gConst = 6.674 * (toRational $ 10**(-11)) -- (N m^2) / kg^2
         r = euclideanDist pos1 pos2 -- m
-        unit = (pos2 - pos1) * fromRational (- (magnitude $ pos2 - pos1))
+        unit = (pos2 - pos1) * fromRational (magnitude $ pos2 - pos1)
 
 computeForce :: Body -> Maybe Quadtree -> Vector
 computeForce Body{mass, position, velocity} tree =

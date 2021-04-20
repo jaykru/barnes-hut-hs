@@ -13,16 +13,16 @@ import qualified Data.Text as T
 import Control.Monad (unless, forever, void)
 
 test_bodies = [ Body { mass = 10,
-                       position = V2 0 0, 
+                       position = V2 100 100,
                        velocity = V2 0 0 }
               , Body { mass = 15,
-                       position = V2 10 10,
+                       position = V2 100 10,
                        velocity = V2 0 0 }
               , Body { mass = 10,
-                       position = V2 (-10) (-10), 
+                       position = V2 500 500,
                        velocity = V2 0 0 }
               , Body { mass = 10,
-                       position = V2 10 (-10),
+                       position = V2 700 700,
                        velocity = V2 0 0 } ]
 
 toCInt :: Rational -> CInt
@@ -46,8 +46,9 @@ renderBodies renderer bodies = do
   rendererDrawColor renderer $= V4 0 255 0 255 -- green
   let points = map (P . fmap toCInt . position) bodies
   putStrLn $ "points: " ++ show points  
-  adjusted <- mapM (adjustToOrigin renderer)
-              $ map position bodies
+  adjusted <-  pure -- $ mapM id
+  -- (adjustToOrigin renderer)
+                    $ map position bodies
   putStrLn $ "adjusted: " ++ (show (map (P . fmap toCInt) adjusted))
   mapM_ (\pos -> fillCircle renderer pos 4 (V4 0 255 0 255)) $ map (fmap toCInt) adjusted
   present renderer
