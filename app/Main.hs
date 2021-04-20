@@ -1,8 +1,11 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE BangPatterns #-}
 module Main where
-import Bhut (sun, earth, doUpdate, demo, mass, Body(..), position, velocity)
+import Criterion.Main
+import Bhut (sun, earth, doUpdate, demo, mass, Body(..), position, velocity, Quadtree(..))
 import Control.Concurrent
 import Data.IORef
+import Data.Maybe
 import Debug.Trace
 import SDL hiding (trace)
 import SDL.Vect(V2(..), V4(..))
@@ -52,8 +55,27 @@ renderBodies renderer bodies = do
   putStrLn $ "adjusted: " ++ (show (map (P . fmap toCInt) adjusted))
   mapM_ (\pos -> fillCircle renderer pos 4 (V4 0 255 0 255)) $ map (fmap toCInt) adjusted
   present renderer
-  
-main = do
+
+renderQuadtree :: Renderer -> Quadtree -> IO ()
+renderQuadtree _ Quadtree{extent = Nothing} = return ()
+renderQuadtree renderer Quadtree{extent = Just(xmin, xmax, ymin, ymax), q1, q2, q3, q4} =
+  do
+    return ()
+    -- rendererDrawColor renderer $= V4 0 0 0 255 -- black
+    -- clear renderer
+
+    -- rendererDrawColor renderer $= V4 0 255 0 255 -- green
+    -- let points = map (P . fmap toCInt . position) bodies
+    -- putStrLn $ "points: " ++ show points
+    -- adjusted <-  pure -- $ mapM id
+    -- -- (adjustToOrigin renderer)
+    --                 $ map position bodies
+    -- putStrLn $ "adjusted: " ++ (show (map (P . fmap toCInt) adjusted))
+    -- mapM_ (\pos -> fillCircle renderer pos 4 (V4 0 255 0 255)) $ map (fmap toCInt) adjusted
+    -- present renderer
+
+mainLoop :: IO ()
+mainLoop = do
   initializeAll
   window <- createWindow (T.pack "physics go brr") defaultWindow
   renderer <- createRenderer window (-1) defaultRenderer
@@ -66,8 +88,13 @@ main = do
                  putStrLn "next iter"
                  -- putStrLn $ show bs
                  renderBodies renderer bs
-                 modifyIORef' bodies (doUpdate 20000)
+                 modifyIORef' bodies (doUpdate 50000)
                  loop)
   loop
   
   destroyWindow window
+
+main =
+  defaultMain [
+        bgroup "mainLoop" [ bench "mainLoop" $ whnfIO mainLoop ]
+  ]

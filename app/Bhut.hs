@@ -1,6 +1,8 @@
 {-# LANGUAGE NamedFieldPuns #-}
-module Bhut (demo, earth, sun, Body(..), mass, position, velocity, doUpdate) where
+{-# LANGUAGE StrictData #-}
+module Bhut (demo, earth, sun, Body(..), mass, position, velocity, doUpdate, Quadtree(..)) where
 import Data.Maybe
+import Data.List
 import SDL.Vect(V2(..))
   
 type Vector = V2 Rational
@@ -13,15 +15,15 @@ data Body = Body
 
 computeCenter :: [Body] -> Vector
 computeCenter bodies =
-  let totalMass = foldl1 (+) $ map (\body -> mass body) bodies
-      weightedsum = foldl1 (+) $ map (\body -> (position body) * fromRational (mass body)) bodies
+  let totalMass = foldl1' (+) $ map (\body -> mass body) bodies
+      weightedsum = foldl1' (+) $ map (\body -> (position body) * fromRational (mass body)) bodies
   in weightedsum / fromRational totalMass
 
 type Extent = Maybe (Rational, Rational, Rational, Rational)
 
 inExtentDec :: Body -> Extent -> Bool
 inExtentDec body Nothing = False
-inExtentDec Body{position= V2 x y} (Just(xmin, xmax, ymin, ymax)) = xmin <= x && x <= xmax && ymin <= y && y <= ymax
+inExtentDec Body{position = V2 x y} (Just(xmin, xmax, ymin, ymax)) = xmin <= x && x <= xmax && ymin <= y && y <= ymax
 
 computeExtent :: [Body] -> Extent
 computeExtent [] = Nothing
@@ -89,7 +91,7 @@ buildQuadtree bodies =
   in
     Quadtree { body = Nothing,
                extent = Just (xmin, xmax, ymin, ymax),
-               treemass = foldl1 (+) $ map mass bodies,
+               treemass = foldl1' (+) $ map mass bodies,
                treecenter = Just $ computeCenter bodies,
                q1 = Just $ buildQuadtree q1Bodies,
                q2 = Just $ buildQuadtree q2Bodies,
@@ -122,7 +124,7 @@ magnitude = euclideanDist $ V2 0 0
 -- computes force of gravity between two bodies as a vector indicating
 -- the force applied on object 1 by object 2
 newtonianForce :: Body -> Body -> Vector
-newtonianForce Body{mass=m1, position=pos1} Body{mass=m2, position=pos2} =
+newtonianForce Body{mass=m1, position=pos1} Body{mass=m2, position=pos2, velocity = 0} =
   unit * fromRational ((gConst * m1*m2) / r^2) -- (N m^2 / kg^2) * kg^2 / m^2 = N
   where gConst = 6.674 * (toRational $ 10**(-11)) -- (N m^2) / kg^2
         r = euclideanDist pos1 pos2 -- m
@@ -143,9 +145,9 @@ computeForce Body{mass, position, velocity} tree =
               cellLength = max (abs $ xmin - xmax) (abs $ ymin - ymax) 
           in
             if cellLength / diameter < theta then
-              newtonianForce body Body{mass = treemass tree, position = center}
+              newtonianForce body Body{mass = treemass tree, position = center, velocity = 0}
             else
-              foldl1 (+) $ [ computeForce body subtree
+              foldl1' (+) $ [ computeForce body subtree
                            | subtree <- [q1 tree, q2 tree, q3 tree, q4 tree]]
 
 nextVelocity :: Body -> Vector -> Rational -> Vector
@@ -178,13 +180,11 @@ doUpdate time bodies =
       aux [] = []
   in aux bodies
 
-earth = Body { mass = 5.972 * 10^24
-             ,
+earth = Body { mass = 5.972 * 10^24,
                position = V2 (toRational 1.49*10^11) (toRational 1.49*10^11),
                velocity = V2 0 0 }
   
-sun = Body { mass = 2 * 10^30
-           ,
+sun = Body { mass = 2 * 10^30,
              position = V2 0 0,
              velocity = V2 0 0 }
 
