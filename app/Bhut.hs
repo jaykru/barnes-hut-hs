@@ -70,7 +70,9 @@ allBodies Quadtree { body, q1, q2, q3, q4 } =
   let rest = concat $ map allBodies $ catMaybes [q1, q2, q3, q4] in
     case body of Nothing -> []
                  Just body -> [body] ++ rest
-  
+
+-- TODO: this implementation is totally wrong and has awful runtime
+--       characteristics; use a more conventional strategy
 buildQuadtree :: [Body] -> Quadtree
 buildQuadtree [] = emptyQuadtree
 buildQuadtree [body] = singletonQuadtree body

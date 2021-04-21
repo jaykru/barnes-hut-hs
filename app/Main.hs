@@ -74,8 +74,8 @@ renderQuadtree renderer Quadtree{extent = Just(xmin, xmax, ymin, ymax), q1, q2, 
     -- mapM_ (\pos -> fillCircle renderer pos 4 (V4 0 255 0 255)) $ map (fmap toCInt) adjusted
     -- present renderer
 
-mainLoop :: IO ()
-mainLoop = do
+mainLoop :: [Body] -> IO ()
+mainLoop test_bodies = do
   initializeAll
   window <- createWindow (T.pack "physics go brr") defaultWindow
   renderer <- createRenderer window (-1) defaultRenderer
@@ -96,5 +96,5 @@ mainLoop = do
 
 main =
   defaultMain [
-        bgroup "mainLoop" [ bench "mainLoop" $ whnfIO mainLoop ]
+        bgroup "mainLoop" [ bench "mainLoop" $ whnfAppIO mainLoop test_bodies ]
   ]
