@@ -4,6 +4,7 @@ module Bhut (demo, earth, sun, Body(..), mass, position, velocity, doUpdate, Qua
 import Data.Maybe
 import Data.List
 import SDL.Vect(V2(..))
+import qualified Data.Array.Accelerate as A
   
 type Vector = V2 Rational
 data Body = Body
@@ -171,16 +172,13 @@ nextPosition body force time =
     pos0 + v0* rat time + accel * rat (1/2 * time^2)
 
 doUpdate :: Rational -> [Body] -> [Body]
-doUpdate time bodies =
-  let aux (b:bs) = 
-        let force = computeForce b (Just $ buildQuadtree (without b bodies))
-            nextVel = nextVelocity b force time
-            nextPos = nextPosition b force time
-            nextBody = b { position = nextPos, velocity = nextVel }
-        in
-          nextBody:(aux bs)
-      aux [] = []
-  in aux bodies
+doUpdate time (b:bs) =
+  let force = computeForce b (Just $ buildQuadtree (without b bodies))
+      nextVel = nextVelocity b force time
+      nextPos = nextPosition b force time
+      nextBody = b { position = nextPos, velocity = nextVel }
+  in nextBody:doUpdate bs
+doUpdate time [] = []
 
 earth = Body { mass = 5.972 * 10^24,
                position = V2 (toRational 1.49*10^11) (toRational 1.49*10^11),
