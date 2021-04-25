@@ -1,18 +1,16 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE StrictData #-}
-module Bhut (demo, earth, sun, Body(..), mass, position, velocity, doUpdate, Quadtree(..)) where
+module Bhut (Body(..), mass, position, velocity, doUpdate, Quadtree(..)) where
 import Data.Maybe
 import Data.List
 import SDL.Vect(V2(..))
-import qualified Data.Array.Accelerate as A
-  
+import Data.Void(absurd)
+
 type Vector = V2 Rational
 data Body = Body
-            {
-              mass :: Rational
+            { mass :: Rational
             , position :: Vector
-            , velocity :: Vector
-            } deriving (Show, Eq)
+            , velocity :: Vector } deriving (Show, Eq)
 
 computeCenter :: [Body] -> Vector
 computeCenter bodies =
@@ -23,7 +21,7 @@ computeCenter bodies =
 type Extent = Maybe (Rational, Rational, Rational, Rational)
 
 inExtentDec :: Body -> Extent -> Bool
-inExtentDec body Nothing = False
+inExtentDec _ Nothing = False
 inExtentDec Body{position = V2 x y} (Just(xmin, xmax, ymin, ymax)) = xmin <= x && x <= xmax && ymin <= y && y <= ymax
 
 computeExtent :: [Body] -> Extent
@@ -46,14 +44,15 @@ data Quadtree = Quadtree
                 , q4 :: Maybe Quadtree
                 } deriving Show
 
-emptyQuadtree = Quadtree { body = Nothing,
-                           extent = Nothing,
-                           treemass = 0,
-                           treecenter = Nothing,
-                           q1 = Nothing,
-                           q2 = Nothing,
-                           q3 = Nothing,
-                           q4 = Nothing }
+emptyQuadtree :: Extent -> Quadtree
+emptyQuadtree e = Quadtree { body = Nothing,
+                             extent = e,
+                             treemass = 0,
+                             treecenter = Nothing,
+                             q1 = Nothing,
+                             q2 = Nothing,
+                             q3 = Nothing,
+                             q4 = Nothing }
 
 singletonQuadtree body = Quadtree { body = Just body,
                                     extent = computeExtent [body],
@@ -72,13 +71,12 @@ allBodies Quadtree { body, q1, q2, q3, q4 } =
     case body of Nothing -> []
                  Just body -> [body] ++ rest
 
--- TODO: this implementation is totally wrong and has awful runtime
---       characteristics; use a more conventional strategy
-buildQuadtree :: [Body] -> Quadtree
-buildQuadtree [] = emptyQuadtree
-buildQuadtree [body] = singletonQuadtree body
-buildQuadtree bodies =
-  let Just (xmin, xmax, ymin, ymax) = computeExtent bodies in
+
+insertBody :: Body -> Quadtree -> Quadtree
+
+quadrantTrees :: Quadtree -> [Quadtree]
+quadrantTrees Quadtree { extent = Nothing } = []
+quadrantTrees Quadtree { extent = Just (xmin, xmax, ymin, ymax) } =
   let xavg = (xmin + xmax) / 2
       yavg = (ymin + ymax) / 2
 
@@ -87,20 +85,25 @@ buildQuadtree bodies =
       q3Extent = Just (xmin, xavg, ymin, yavg)
       q4Extent = Just (xavg, xmax, ymin, yavg)
 
-      q1Bodies = [body | body <- bodies, body `inExtentDec` q1Extent]
-      q2Bodies = [body | body <- bodies, body `inExtentDec` q2Extent]
-      q3Bodies = [body | body <- bodies, body `inExtentDec` q3Extent]
-      q4Bodies = [body | body <- bodies, body `inExtentDec` q4Extent]
-  in
-    Quadtree { body = Nothing,
-               extent = Just (xmin, xmax, ymin, ymax),
-               treemass = foldl1' (+) $ map mass bodies,
-               treecenter = Just $ computeCenter bodies,
-               q1 = Just $ buildQuadtree q1Bodies,
-               q2 = Just $ buildQuadtree q2Bodies,
-               q3 = Just $ buildQuadtree q3Bodies,
-               q4 = Just $ buildQuadtree q4Bodies
-               }
+  in Just $ [ emptyQuadtree e | e <- [q1Extent, q2Extent, q3Extent, q4Extent]]
+
+
+-- TODO: this implementation is totally wrong and has awful runtime
+--       characteristics; use a more conventional strategy
+buildQuadtree :: [Body] -> Quadtree
+buildQuadtree [] = emptyQuadtree
+buildQuadtree [body] = singletonQuadtree body
+buildQuadtree (body:bodies) =
+  let initialQuadtree = Quadtree { body = Nothing
+                                 , extent = computeExtent (body:bodies)
+                                 , treemass = foldl1' (+) $ map mass bodies
+                                 , treecenter = Just $ computeCenter bodies
+                                 , q1 = Nothing
+                                 , q2 = Nothing
+                                 , q3 = Nothing
+                                 , q4 = Nothing }
+  in foldl' (\qtree body -> insertBody body qtree) initialQuadtree bodies
+
 
 withoutBody :: Quadtree -> Body -> Quadtree
 withoutBody tree body =
@@ -144,8 +147,7 @@ computeForce Body{mass, position, velocity} tree =
           let Just center = treecenter tree
               body = Body{mass=mass, position=position, velocity=velocity}
               diameter = euclideanDist center position
-              -- TODO: is this actually the right calculation?
-              cellLength = max (abs $ xmin - xmax) (abs $ ymin - ymax) 
+              cellLength = max (abs $ xmin - xmax) (abs $ ymin - ymax)
           in
             if cellLength / diameter < theta then
               newtonianForce body Body{mass = treemass tree, position = center, velocity = 0}
@@ -173,30 +175,9 @@ nextPosition body force time =
 
 doUpdate :: Rational -> [Body] -> [Body]
 doUpdate time (b:bs) =
-  let force = computeForce b (Just $ buildQuadtree (without b bodies))
+  let force = computeForce b (Just $ buildQuadtree (without b bs))
       nextVel = nextVelocity b force time
       nextPos = nextPosition b force time
       nextBody = b { position = nextPos, velocity = nextVel }
-  in nextBody:doUpdate bs
-doUpdate time [] = []
-
-earth = Body { mass = 5.972 * 10^24,
-               position = V2 (toRational 1.49*10^11) (toRational 1.49*10^11),
-               velocity = V2 0 0 }
-  
-sun = Body { mass = 2 * 10^30,
-             position = V2 0 0,
-             velocity = V2 0 0 }
-
-demo =
-  let qt = buildQuadtree [sun] -- NOTE: we probably need to add a
-                               -- function to remove the current node
-                               -- from consideration for use with the
-                               -- force computation
-
-  in
-    do putStrLn $ show $ buildQuadtree [sun,earth]
-       putStrLn $ "Total force on the earth is " ++ (show $ computeForce earth (Just qt)) ++ "N"
-       putStrLn $ "The newtonian calculation yields " ++ (show $ newtonianForce earth sun) ++ "N"
-       putStrLn $ show $ doUpdate 1 [earth,sun]
-  
+  in nextBody:(doUpdate time bs)
+doUpdate _ [] = []
