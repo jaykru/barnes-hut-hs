@@ -1,82 +1,127 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveTraversable #-}
+-- # LANGUAGE DeriveAnyClass #
 module Bhut (Body(..), mass, position, velocity, doUpdate, Quadtree(..)) where
 import Data.Maybe
 import Data.List
 import SDL.Vect(V2(..))
-import Data.Void(absurd)
+import Control.Lens hiding (element, without)
+import Control.Lens.TH
 
 type Vector = V2 Rational
 data Body = Body
-            { mass :: Rational
-            , position :: Vector
-            , velocity :: Vector } deriving (Show, Eq)
+            { _mass :: Rational
+            , _position :: Vector
+            , _velocity :: Vector } deriving (Show, Eq)
+$(makeLenses ''Body)
 
 computeCenter :: [Body] -> Vector
 computeCenter bodies =
-  let totalMass = foldl1' (+) $ map (\body -> mass body) bodies
-      weightedsum = foldl1' (+) $ map (\body -> (position body) * fromRational (mass body)) bodies
+  let totalMass = foldl1' (+) $ map (\body -> body ^. mass) bodies
+      weightedsum = foldl1' (+) $ map (\body -> (body ^. position) * fromRational (body ^. mass)) bodies
   in weightedsum / fromRational totalMass
 
 type Extent = Maybe (Rational, Rational, Rational, Rational)
 
 inExtentDec :: Body -> Extent -> Bool
 inExtentDec _ Nothing = False
-inExtentDec Body{position = V2 x y} (Just(xmin, xmax, ymin, ymax)) = xmin <= x && x <= xmax && ymin <= y && y <= ymax
+inExtentDec Body{_position = V2 x y}
+            (Just(xmin, xmax, ymin, ymax)) = --
+  xmin <= x && x <= xmax && ymin <= y && y <= ymax
 
 computeExtent :: [Body] -> Extent
 computeExtent [] = Nothing
 computeExtent (body:bodies) =
-  let V2 x y = position body in
+  let V2 x y = body ^. position in
   case computeExtent bodies of
     Just (xmin,xmax,ymin,ymax) -> Just (min xmin x, max xmax x, min ymin y, max ymax y)
     Nothing -> Just (x, x, y, y)
 
 data Quadtree = Quadtree
                 {
-                  body :: Maybe Body -- body stored here in the case of a leaf node
-                , extent :: Extent
-                , treemass :: Rational -- total mass of the tree in kilograms
-                , treecenter :: Maybe Vector
-                , q1 :: Maybe Quadtree
-                , q2 :: Maybe Quadtree
-                , q3 :: Maybe Quadtree
-                , q4 :: Maybe Quadtree
-                } deriving Show
+                  _body :: Maybe Body -- body stored here in the case of a leaf node
+                , _extent :: Extent
+                , _treemass :: Rational -- total mass of the tree in kilograms
+                , _treecenter :: Maybe Vector
+                , _q1 :: Maybe Quadtree
+                , _q2 :: Maybe Quadtree
+                , _q3 :: Maybe Quadtree
+                , _q4 :: Maybe Quadtree
+                } deriving (Show)
+$(makeLenses ''Quadtree)
 
 emptyQuadtree :: Extent -> Quadtree
-emptyQuadtree e = Quadtree { body = Nothing,
-                             extent = e,
-                             treemass = 0,
-                             treecenter = Nothing,
-                             q1 = Nothing,
-                             q2 = Nothing,
-                             q3 = Nothing,
-                             q4 = Nothing }
+emptyQuadtree e = Quadtree { _body = Nothing,
+                             _extent = e,
+                             _treemass = 0,
+                             _treecenter = Nothing,
+                             _q1 = Nothing,
+                             _q2 = Nothing,
+                             _q3 = Nothing,
+                             _q4 = Nothing }
 
-singletonQuadtree body = Quadtree { body = Just body,
-                                    extent = computeExtent [body],
-                                    treemass = mass body,
-                                    treecenter = Just $ position body,
-                                    q1 = Nothing,
-                                    q2 = Nothing,
-                                    q3 = Nothing,
-                                    q4 = Nothing }
+-- singletonQuadtree body = Quadtree { _body = Just body,
+--                                     _extent = computeExtent [body],
+--                                     _treemass = body ^. mass,
+--                                     _treecenter = Just $ body ^. position,
+--                                     _q1 = Nothing,
+--                                     _q2 = Nothing,
+--                                     _q3 = Nothing,
+--                                     _q4 = Nothing }
 
 
   
 allBodies :: Quadtree -> [Body]
-allBodies Quadtree { body, q1, q2, q3, q4 } =
-  let rest = concat $ map allBodies $ catMaybes [q1, q2, q3, q4] in
-    case body of Nothing -> []
-                 Just body -> [body] ++ rest
+allBodies tree =
+  let rest = concat $ map allBodies $ catMaybes [tree ^. q1, tree ^. q2, tree ^. q3, tree ^. q4] in
+    case tree ^. body of Nothing -> []
+                         Just b -> [b] ++ rest
+
+insertInFirstFit :: Body -> [Quadtree] -> Maybe [Quadtree]
+insertInFirstFit b [] =
+  Nothing
+insertInFirstFit b (t:ts) =
+ if inExtentDec b (t ^. extent) then
+   do
+     inserted <- (insertBody b t)
+     pure $ inserted:ts
+ else do
+   inserted <- insertInFirstFit b ts
+   pure $ t:inserted
+
+insertBody :: Body -> Quadtree -> Maybe Quadtree
+insertBody b tree =
+  if inExtentDec b (tree ^. extent) then
+    case (tree ^. body) of
+      Nothing ->
+        -- ez mode
+        Just $ tree & body .~ (Just b)
+      Just b' ->
+        let subtrees = quadrantTrees tree in
+        -- HACK: this is kind of awkward
+        do
+          subtrees <- insertInFirstFit b subtrees
+          subtrees <- insertInFirstFit b' subtrees
+          let (q1':q2':q3':q4':[]) = subtrees
+              newTree = (tree &~ do
+                                q1 .= Just q1'
+                                q2 .= Just q2'
+                                q3 .= Just q3'
+                                q4 .= Just q4')
+          Just $ newTree &~
+            let bodies = allBodies newTree in
+            do treecenter .= (Just $ computeCenter bodies)
+               treemass .= foldl1' (+) (bodies ^.. (traverse . mass))
+               extent .= computeExtent bodies
+  else Nothing
 
 
-insertBody :: Body -> Quadtree -> Quadtree
 
 quadrantTrees :: Quadtree -> [Quadtree]
-quadrantTrees Quadtree { extent = Nothing } = []
-quadrantTrees Quadtree { extent = Just (xmin, xmax, ymin, ymax) } =
+quadrantTrees Quadtree { _extent = Nothing } = []
+quadrantTrees Quadtree { _extent = Just (xmin, xmax, ymin, ymax) } =
   let xavg = (xmin + xmax) / 2
       yavg = (ymin + ymax) / 2
 
@@ -85,36 +130,52 @@ quadrantTrees Quadtree { extent = Just (xmin, xmax, ymin, ymax) } =
       q3Extent = Just (xmin, xavg, ymin, yavg)
       q4Extent = Just (xavg, xmax, ymin, yavg)
 
-  in Just $ [ emptyQuadtree e | e <- [q1Extent, q2Extent, q3Extent, q4Extent]]
+  in [ emptyQuadtree e
+     | e <- [q1Extent, q2Extent, q3Extent, q4Extent]]
 
 
 -- TODO: this implementation is totally wrong and has awful runtime
 --       characteristics; use a more conventional strategy
-buildQuadtree :: [Body] -> Quadtree
-buildQuadtree [] = emptyQuadtree
-buildQuadtree [body] = singletonQuadtree body
+buildQuadtree :: [Body] -> Maybe Quadtree
+buildQuadtree [] = Just $ emptyQuadtree Nothing
+-- buildQuadtree [body] = Just $ singletonQuadtree body
 buildQuadtree (body:bodies) =
-  let initialQuadtree = Quadtree { body = Nothing
-                                 , extent = computeExtent (body:bodies)
-                                 , treemass = foldl1' (+) $ map mass bodies
-                                 , treecenter = Just $ computeCenter bodies
-                                 , q1 = Nothing
-                                 , q2 = Nothing
-                                 , q3 = Nothing
-                                 , q4 = Nothing }
-  in foldl' (\qtree body -> insertBody body qtree) initialQuadtree bodies
+  let initialQuadtree = Quadtree { _body = Nothing
+                                 , _extent = computeExtent (body:bodies)
+                                 , _treemass = foldl1' (+) $ map (^. mass) bodies
+                                 , _treecenter = Just $ computeCenter bodies
+                                 , _q1 = Nothing
+                                 , _q2 = Nothing
+                                 , _q3 = Nothing
+                                 , _q4 = Nothing }
+  in foldl' (\qtree body -> do qtree <- qtree
+                               insertBody body qtree)
+            (Just initialQuadtree)
+            bodies
 
 
-withoutBody :: Quadtree -> Body -> Quadtree
-withoutBody tree body =
-  let bodies = allBodies tree
-      (ok, just_one) = break (== body) bodies
-  in buildQuadtree (ok ++ (drop 1 just_one))
-
-without :: Eq a => a -> [a] -> [a]
-without a as =
-  let (ok, just_one) = break (== a) as
-  in ok ++ drop 1 just_one
+withoutBody :: Quadtree -> Body -> Maybe Quadtree
+withoutBody tree b =
+  case (tree ^. body) of
+    Nothing ->
+      do q1' <- tree ^. q1
+         q2' <- tree ^. q2
+         q3' <- tree ^. q3
+         q4' <- tree ^. q4
+         q1' <- withoutBody q1' b
+         q2' <- withoutBody q2' b
+         q3' <- withoutBody q3' b
+         q4' <- withoutBody q4' b
+         return $ (tree &~ do
+                     q1 .= Just q1'
+                     q2 .= Just q2'
+                     q3 .= Just q3'
+                     q4 .= Just q4')
+    _ ->
+      Just $ tree & body %~ excludeb
+        where excludeb b' =
+                do b' <- b'
+                   if b' == b then Nothing else (Just b)
 
 -- fixed accuracy parameter, roughly 1
 theta :: Rational
@@ -130,35 +191,34 @@ magnitude = euclideanDist $ V2 0 0
 -- computes force of gravity between two bodies as a vector indicating
 -- the force applied on object 1 by object 2
 newtonianForce :: Body -> Body -> Vector
-newtonianForce Body{mass=m1, position=pos1} Body{mass=m2, position=pos2, velocity = 0} =
+newtonianForce Body{_mass=m1, _position=pos1} Body{_mass=m2, _position=pos2, _velocity = 0} =
   unit * fromRational ((gConst * m1*m2) / r^2) -- (N m^2 / kg^2) * kg^2 / m^2 = N
   where gConst = 6.674 * (toRational $ 10**(-11)) -- (N m^2) / kg^2
         r = euclideanDist pos1 pos2 -- m
         unit = (pos2 - pos1) * fromRational (magnitude $ pos2 - pos1)
 
 computeForce :: Body -> Maybe Quadtree -> Vector
-computeForce Body{mass, position, velocity} tree =
+computeForce b tree =
   case tree of
     Nothing -> V2 0 0
     Just tree ->
-      case extent tree of
+      case tree ^. extent of
         Nothing -> V2 0 0
         Just (xmin, xmax, ymin, ymax) -> 
-          let Just center = treecenter tree
-              body = Body{mass=mass, position=position, velocity=velocity}
-              diameter = euclideanDist center position
+          let Just center = tree ^. treecenter
+              diameter = euclideanDist center (b ^. position)
               cellLength = max (abs $ xmin - xmax) (abs $ ymin - ymax)
           in
             if cellLength / diameter < theta then
-              newtonianForce body Body{mass = treemass tree, position = center, velocity = 0}
+              newtonianForce b Body{_mass = tree ^. treemass , _position = center, _velocity = 0}
             else
-              foldl1' (+) $ [ computeForce body subtree
-                           | subtree <- [q1 tree, q2 tree, q3 tree, q4 tree]]
+              foldl1' (+) $ [ computeForce b subtree
+                            | subtree <- [tree ^. q1 , tree ^. q2 , tree ^. q3 , tree ^. q4]]
 
 nextVelocity :: Body -> Vector -> Rational -> Vector
-nextVelocity body force time =
-  let v0 = velocity body
-      accel = force / fromRational (mass body)
+nextVelocity b force time =
+  let v0 = b ^. velocity
+      accel = force / fromRational (b ^. mass)
   in
     v0 + accel * fromRational time
 
@@ -166,18 +226,25 @@ rat :: Rational -> V2 Rational
 rat = fromRational
 
 nextPosition :: Body -> Vector -> Rational -> Vector
-nextPosition body force time =
-  let pos0 = position body
-      accel = force / rat (mass body)
-      v0 = velocity body
+nextPosition b force time =
+  let pos0 = b ^. position
+      accel = force / rat (b ^. mass)
+      v0 = b ^. velocity
   in
     pos0 + v0* rat time + accel * rat (1/2 * time^2)
 
-doUpdate :: Rational -> [Body] -> [Body]
+doUpdate :: Rational -> [Body] -> Maybe [Body]
 doUpdate time (b:bs) =
-  let force = computeForce b (Just $ buildQuadtree (without b bs))
+  do
+    tree <- buildQuadtree (b:bs)
+    rest <- doUpdate time bs
+    let
+      force = computeForce b (withoutBody tree b)
       nextVel = nextVelocity b force time
       nextPos = nextPosition b force time
-      nextBody = b { position = nextPos, velocity = nextVel }
-  in nextBody:(doUpdate time bs)
-doUpdate _ [] = []
+      nextBody = b &~ do
+                  position .= nextPos
+                  velocity .= nextVel
+     in Just $ nextBody:rest
+
+doUpdate _ [] = Just []
