@@ -80,15 +80,15 @@ renderQuadtree renderer Quadtree{_extent = Just(xmin, xmax, ymin, ymax)} =
     -- mapM_ (\pos -> fillCircle renderer pos 4 (V4 0 255 0 255)) $ map (fmap toCInt) adjusted
     -- present renderer
 
-mainLoop :: _ -> IORef [Body] -> MaybeT IO ()
+mainLoop :: _ -> IORef [Body] -> IO ()
 mainLoop renderer bodies = do
-    _ <- lift $ pollEvents
-    bs <- lift $ readIORef bodies
-    lift $ putStrLn "next iter"
+    _ <- pollEvents
+    bs <- readIORef bodies
+    putStrLn "next iter"
   -- putStrLn $ show bs
-    lift $ renderBodies renderer bs
-    newBodies <- MaybeT . return $ doUpdate 50000 bs
-    lift $ writeIORef bodies newBodies
+    renderBodies renderer bs
+    let Just newBodies = doUpdate 50000 bs
+    writeIORef bodies newBodies
 
 main :: IO ()
 main = do
@@ -97,8 +97,8 @@ main = do
   renderer <- createRenderer window (-1) defaultRenderer
   bodies <- newIORef test_bodies
 
-  runMaybeT $ forever $ mainLoop renderer bodies
-  return ()
+  forever $ mainLoop renderer bodies
+  -- return ()
 
 -- main =
 --   defaultMain [

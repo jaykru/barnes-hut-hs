@@ -9,6 +9,8 @@ import Data.List
 import SDL.Vect(V2(..))
 import Control.Lens hiding (element, without)
 import Control.Lens.TH
+import Control.Exception
+import Debug.Trace
 
 type Vector = V2 Rational
 data Body = Body
@@ -28,7 +30,7 @@ type Extent = Maybe (Rational, Rational, Rational, Rational)
 inExtentDec :: Body -> Extent -> Bool
 inExtentDec _ Nothing = False
 inExtentDec Body{_position = V2 x y}
-            (Just(xmin, xmax, ymin, ymax)) = --
+            (Just(xmin, xmax, ymin, ymax)) =
   xmin <= x && x <= xmax && ymin <= y && y <= ymax
 
 computeExtent :: [Body] -> Extent
@@ -62,17 +64,6 @@ emptyQuadtree e = Quadtree { _body = Nothing,
                              _q3 = Nothing,
                              _q4 = Nothing }
 
--- singletonQuadtree body = Quadtree { _body = Just body,
---                                     _extent = computeExtent [body],
---                                     _treemass = body ^. mass,
---                                     _treecenter = Just $ body ^. position,
---                                     _q1 = Nothing,
---                                     _q2 = Nothing,
---                                     _q3 = Nothing,
---                                     _q4 = Nothing }
-
-
-  
 allBodies :: Quadtree -> [Body]
 allBodies tree =
   let rest = concat $ map allBodies $ catMaybes [tree ^. q1, tree ^. q2, tree ^. q3, tree ^. q4] in
@@ -115,7 +106,9 @@ insertBody b tree =
             do treecenter .= (Just $ computeCenter bodies)
                treemass .= foldl1' (+) (bodies ^.. (traverse . mass))
                extent .= computeExtent bodies
-  else Nothing
+  else
+    trace ((show b) ++ " not in extent " ++ (show (tree ^. extent))) Nothing
+    -- Nothing
 
 
 
@@ -149,7 +142,8 @@ buildQuadtree (body:bodies) =
                                  , _q3 = Nothing
                                  , _q4 = Nothing }
   in foldl' (\qtree body -> do qtree <- qtree
-                               insertBody body qtree)
+                               let Just inserted = insertBody body qtree
+                               return inserted)
             (Just initialQuadtree)
             bodies
 
