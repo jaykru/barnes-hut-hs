@@ -21,6 +21,7 @@ import Foreign.C.Types
 import qualified Data.Text as T
 import Control.Monad (unless, forever, void)
 
+
 test_bodies = [ Body { _mass = 10,
                        _position = V2 100 100,
                        _velocity = V2 0 0 }

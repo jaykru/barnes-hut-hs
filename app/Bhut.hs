@@ -12,7 +12,9 @@ import Control.Lens.TH
 import Control.Exception
 import Debug.Trace
 
+
 type Vector = V2 Rational
+
 data Body = Body
             { _mass :: Rational
             , _position :: Vector
@@ -82,12 +84,20 @@ insertInFirstFit b (t:ts) =
    inserted <- insertInFirstFit b ts
    pure $ t:inserted
 
+isLeaf :: Quadtree -> Bool
+isLeaf
+
 insertBody :: Body -> Quadtree -> Maybe Quadtree
 insertBody b tree =
   if inExtentDec b (tree ^. extent) then
     case (tree ^. body) of
       Nothing ->
-        -- ez mode
+        -- NOTE: this case is wrong: for one thing, we shouldn't be inserting a
+        -- body into a node tree; we should only be inserting into an empty
+        -- _leaf_ tree. we also need to update the tree metrics on insertion in
+        -- a way similar to what's done below.
+
+        -- TODO: fix it
         Just $ tree & body .~ (Just b)
       Just b' ->
         let subtrees = quadrantTrees tree in
@@ -101,16 +111,19 @@ insertBody b tree =
                                 q2 .= Just q2'
                                 q3 .= Just q3'
                                 q4 .= Just q4')
-          Just $ newTree &~
-            let bodies = allBodies newTree in
-            do treecenter .= (Just $ computeCenter bodies)
-               treemass .= foldl1' (+) (bodies ^.. (traverse . mass))
-               extent .= computeExtent bodies
+
+              bodies = allBodies newTree in
+                Just $ Quadtree { _extent = tree ^. extent -- this needn't change
+                                , _treecenter = traceShowId(Just $ computeCenter (traceShowId bodies))
+                                , _treemass = foldl1' (+) (map (\body -> body ^. mass) bodies)
+                                , _body = Nothing
+                                , _q1 = newTree ^. q1
+                                , _q2 = newTree ^. q2
+                                , _q3 = newTree ^. q3
+                                , _q4 = newTree ^. q4
+                                }
   else
-    trace ((show b) ++ " not in extent " ++ (show (tree ^. extent))) Nothing
-    -- Nothing
-
-
+    error $ ((show b)) ++ " not in extent " ++ (show (tree ^. extent))
 
 quadrantTrees :: Quadtree -> [Quadtree]
 quadrantTrees Quadtree { _extent = Nothing } = []
@@ -127,22 +140,20 @@ quadrantTrees Quadtree { _extent = Just (xmin, xmax, ymin, ymax) } =
      | e <- [q1Extent, q2Extent, q3Extent, q4Extent]]
 
 
--- TODO: this implementation is totally wrong and has awful runtime
---       characteristics; use a more conventional strategy
 buildQuadtree :: [Body] -> Maybe Quadtree
 buildQuadtree [] = Just $ emptyQuadtree Nothing
 -- buildQuadtree [body] = Just $ singletonQuadtree body
 buildQuadtree (body:bodies) =
   let initialQuadtree = Quadtree { _body = Nothing
                                  , _extent = computeExtent (body:bodies)
-                                 , _treemass = foldl1' (+) $ map (^. mass) bodies
-                                 , _treecenter = Just $ computeCenter bodies
+                                 , _treemass = foldl1' (+) $ map (^. mass) (body:bodies)
+                                 , _treecenter = Just $ computeCenter (body:bodies)
                                  , _q1 = Nothing
                                  , _q2 = Nothing
                                  , _q3 = Nothing
                                  , _q4 = Nothing }
   in foldl' (\qtree body -> do qtree <- qtree
-                               let Just inserted = insertBody body qtree
+                               inserted <- insertBody body qtree
                                return inserted)
             (Just initialQuadtree)
             bodies
@@ -198,16 +209,18 @@ computeForce b tree =
     Just tree ->
       case tree ^. extent of
         Nothing -> V2 0 0
-        Just (xmin, xmax, ymin, ymax) -> 
-          let Just center = tree ^. treecenter
-              diameter = euclideanDist center (b ^. position)
-              cellLength = max (abs $ xmin - xmax) (abs $ ymin - ymax)
-          in
-            if cellLength / diameter < theta then
-              newtonianForce b Body{_mass = tree ^. treemass , _position = center, _velocity = 0}
-            else
-              foldl1' (+) $ [ computeForce b subtree
-                            | subtree <- [tree ^. q1 , tree ^. q2 , tree ^. q3 , tree ^. q4]]
+        Just (xmin, xmax, ymin, ymax) ->
+          case tree ^. treecenter of
+            Nothing -> error $ "trying to compute due to tree " ++ show tree ++ " with no center."
+            Just center ->
+              let diameter = euclideanDist center (b ^. position)
+                  cellLength = max (abs $ xmin - xmax) (abs $ ymin - ymax)
+              in
+                if cellLength / diameter < theta then
+                  newtonianForce b Body{_mass = tree ^. treemass , _position = center, _velocity = 0}
+                else
+                  foldl1' (+) $ [ computeForce b subtree
+                                | subtree <- [tree ^. q1 , tree ^. q2 , tree ^. q3 , tree ^. q4]]
 
 nextVelocity :: Body -> Vector -> Rational -> Vector
 nextVelocity b force time =
