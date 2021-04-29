@@ -21,11 +21,12 @@ data Body = Body
             , _velocity :: Vector } deriving (Show, Eq)
 $(makeLenses ''Body)
 
-computeCenter :: [Body] -> Vector
+computeCenter :: [Body] -> Maybe Vector
+comuteCenter [] = Nothing
 computeCenter bodies =
   let totalMass = foldl1' (+) $ map (\body -> body ^. mass) bodies
       weightedsum = foldl1' (+) $ map (\body -> (body ^. position) * fromRational (body ^. mass)) bodies
-  in weightedsum / fromRational totalMass
+  in Just $ weightedsum / fromRational totalMass
 
 type Extent = Maybe (Rational, Rational, Rational, Rational)
 
@@ -69,7 +70,7 @@ emptyQuadtree e = Quadtree { _body = Nothing,
 allBodies :: Quadtree -> [Body]
 allBodies tree =
   let rest = concat $ map allBodies $ catMaybes [tree ^. q1, tree ^. q2, tree ^. q3, tree ^. q4] in
-    case tree ^. body of Nothing -> []
+    case tree ^. body of Nothing -> [] ++ rest
                          Just b -> [b] ++ rest
 
 insertInFirstFit :: Body -> [Quadtree] -> Maybe [Quadtree]
@@ -85,7 +86,17 @@ insertInFirstFit b (t:ts) =
    pure $ t:inserted
 
 isLeaf :: Quadtree -> Bool
-isLeaf
+isLeaf tree =
+  case (tree ^. q1, tree ^. q2, tree ^. q3, tree ^. q4) of
+    (Nothing, Nothing, Nothing, Nothing) ->
+      True
+    _ -> False
+
+isVacant :: Quadtree -> Bool
+isVacant tree =
+  case tree ^. body of
+    Nothing -> True
+    _ -> False
 
 insertBody :: Body -> Quadtree -> Maybe Quadtree
 insertBody b tree =
@@ -96,10 +107,35 @@ insertBody b tree =
         -- body into a node tree; we should only be inserting into an empty
         -- _leaf_ tree. we also need to update the tree metrics on insertion in
         -- a way similar to what's done below.
+        if isLeaf tree then
+          -- in this case, we can just fill the empty leaf.
+          Just $ tree &~ do
+                        body .= (Just b)
+                        treemass .= b ^. mass
+                        treecenter .= (Just $ b ^. position)
+        else
+          -- here we have a node already split into quadtrees, so we just need
+          -- to insert b into the first fitting subtree
+          do tq1 <- tree ^. q1
+             tq2 <- tree ^. q2
+             tq3 <- tree ^. q3
+             tq4 <- tree ^. q4
+             subtrees <- insertInFirstFit b [tq1, tq2, tq3, tq4]
+             let (q1':q2':q3':q4':[]) = subtrees
+                 newTree = (tree &~ do
+                                 q1 .= Just q1'
+                                 q2 .= Just q2'
+                                 q3 .= Just q3'
+                                 q4 .= Just q4')
+                 bodies = allBodies newTree in
+               case bodies of
+                 [] -> error $ "⚠️ empty bodies " ++ " when inserting " ++ show b ++ " into " ++ show tree ++ " resulting in " ++ show newTree ++ " ⚠️"
+                 _ ->
+                   Just $ (newTree &~ do
+                                treecenter .= computeCenter bodies
+                                treemass .= (foldl1' (+) $ map (\bd -> bd ^. mass) bodies))
 
-        -- TODO: fix it
-        Just $ tree & body .~ (Just b)
-      Just b' ->
+      Just b' -> -- in this case we need to split the leaf, as we only allow one body per leaf
         let subtrees = quadrantTrees tree in
         -- HACK: this is kind of awkward
         do
@@ -113,17 +149,15 @@ insertBody b tree =
                                 q4 .= Just q4')
 
               bodies = allBodies newTree in
-                Just $ Quadtree { _extent = tree ^. extent -- this needn't change
-                                , _treecenter = traceShowId(Just $ computeCenter (traceShowId bodies))
-                                , _treemass = foldl1' (+) (map (\body -> body ^. mass) bodies)
-                                , _body = Nothing
-                                , _q1 = newTree ^. q1
-                                , _q2 = newTree ^. q2
-                                , _q3 = newTree ^. q3
-                                , _q4 = newTree ^. q4
-                                }
+            case bodies of
+              [] -> error "tree has no bodies"
+              _ ->
+                Just $ newTree &~ do
+                        treecenter .= (computeCenter bodies)
+                        treemass .= foldl1' (+) (map (\bd -> bd ^. mass) bodies)
+                        body .= Nothing
   else
-    error $ ((show b)) ++ " not in extent " ++ (show (tree ^. extent))
+    error $ ((show b)) ++ " not in extent " ++ (show (tree ^. extent)) ++ " of tree " ++ show tree
 
 quadrantTrees :: Quadtree -> [Quadtree]
 quadrantTrees Quadtree { _extent = Nothing } = []
@@ -147,7 +181,7 @@ buildQuadtree (body:bodies) =
   let initialQuadtree = Quadtree { _body = Nothing
                                  , _extent = computeExtent (body:bodies)
                                  , _treemass = foldl1' (+) $ map (^. mass) (body:bodies)
-                                 , _treecenter = Just $ computeCenter (body:bodies)
+                                 , _treecenter = computeCenter (body:bodies)
                                  , _q1 = Nothing
                                  , _q2 = Nothing
                                  , _q3 = Nothing
