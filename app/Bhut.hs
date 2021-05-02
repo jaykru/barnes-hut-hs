@@ -18,8 +18,12 @@ type Vector = V2 Rational
 data Body = Body
             { _mass :: Rational
             , _position :: Vector
-            , _velocity :: Vector } deriving (Show, Eq)
+            , _velocity :: Vector } deriving (Eq)
 $(makeLenses ''Body)
+
+instance Show Body where
+  show Body { _mass = m, _position = V2 x y, _velocity = V2 vx vy }  =
+    "(" ++ (show $ fromRational m) ++ "kg, " ++ "[" ++ (show $ fromRational x) ++ "," ++ (show $ fromRational y) ++ "]" ++ ", " ++ "[" ++ (show $ fromRational vx) ++ "," ++ (show $ fromRational vy) ++ "]"
 
 computeCenter :: [Body] -> Maybe Vector
 comuteCenter [] = Nothing
@@ -103,10 +107,6 @@ insertBody b tree =
   if inExtentDec b (tree ^. extent) then
     case (tree ^. body) of
       Nothing ->
-        -- NOTE: this case is wrong: for one thing, we shouldn't be inserting a
-        -- body into a node tree; we should only be inserting into an empty
-        -- _leaf_ tree. we also need to update the tree metrics on insertion in
-        -- a way similar to what's done below.
         if isLeaf tree then
           -- in this case, we can just fill the empty leaf.
           Just $ tree &~ do
@@ -192,7 +192,7 @@ buildQuadtree (body:bodies) =
             (Just initialQuadtree)
             bodies
 
-
+-- FIXME
 withoutBody :: Quadtree -> Body -> Maybe Quadtree
 withoutBody tree b =
   case (tree ^. body) of
@@ -211,10 +211,9 @@ withoutBody tree b =
                      q3 .= Just q3'
                      q4 .= Just q4')
     _ ->
-      Just $ tree & body %~ excludeb
-        where excludeb b' =
-                do b' <- b'
-                   if b' == b then Nothing else (Just b)
+      -- Leaf
+      Just $ (tree &~ do
+                 body .= if (tree ^. body) == Just b then Nothing else tree ^. body)
 
 -- fixed accuracy parameter, roughly 1
 theta :: Rational

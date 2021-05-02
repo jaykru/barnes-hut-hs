@@ -21,7 +21,6 @@ import Foreign.C.Types
 import qualified Data.Text as T
 import Control.Monad (unless, forever, void)
 
-
 test_bodies = [ Body { _mass = 10,
                        _position = V2 100 100,
                        _velocity = V2 0 0 }
@@ -85,10 +84,10 @@ mainLoop :: _ -> IORef [Body] -> IO ()
 mainLoop renderer bodies = do
     _ <- pollEvents
     bs <- readIORef bodies
-    putStrLn "next iter"
-  -- putStrLn $ show bs
+    putStrLn $ "bodies: " ++ show bs
     renderBodies renderer bs
     let Just newBodies = doUpdate 50000 bs
+    putStrLn $ "bodies" ++ (if bs /= newBodies then " have " else " haven't " ++ "changed")
     writeIORef bodies newBodies
 
 main :: IO ()
