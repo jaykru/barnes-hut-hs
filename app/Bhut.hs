@@ -26,7 +26,7 @@ instance Show Body where
     "(" ++ (show $ fromRational m) ++ "kg, " ++ "[" ++ (show $ fromRational x) ++ "," ++ (show $ fromRational y) ++ "]" ++ ", " ++ "[" ++ (show $ fromRational vx) ++ "," ++ (show $ fromRational vy) ++ "]"
 
 computeCenter :: [Body] -> Maybe Vector
-comuteCenter [] = Nothing
+computeCenter [] = Nothing
 computeCenter bodies =
   let totalMass = foldl1' (+) $ map (\body -> body ^. mass) bodies
       weightedsum = foldl1' (+) $ map (\body -> (body ^. position) * fromRational (body ^. mass)) bodies
