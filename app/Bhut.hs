@@ -274,17 +274,18 @@ nextPosition b force time =
     pos0 + v0* rat time + accel * rat (1/2 * time^2)
 
 doUpdate :: Rational -> [Body] -> Maybe [Body]
-doUpdate time (b:bs) =
+doUpdate time bodies =
   do
-    tree <- buildQuadtree (b:bs)
-    rest <- doUpdate time bs
-    let
-      force = computeForce b (withoutBody tree b)
-      nextVel = nextVelocity b force time
-      nextPos = nextPosition b force time
-      nextBody = b &~ do
-                  position .= nextPos
-                  velocity .= nextVel
-     in Just $ nextBody:rest
-
+    tree <- buildQuadtree bodies
+    Just $ aux bodies tree []
+    where
+      aux [] _ acc = acc
+      aux (b:bs) tree acc =
+        let force = computeForce b (withoutBody tree b)
+            nextVel = nextVelocity b force time
+            nextPos = nextPosition b force time
+            nextBody = b &~ do
+                        position .= nextPos
+                        velocity .= nextVel
+        in aux bs tree (nextBody:acc)
 doUpdate _ [] = Just []
